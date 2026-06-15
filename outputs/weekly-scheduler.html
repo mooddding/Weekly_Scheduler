@@ -1,0 +1,2886 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weekly Pipeline Scheduler</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #fff;
+      --ink: #17202a;
+      --muted: #667485;
+      --line: #d9dee7;
+      --line-soft: #edf1f6;
+      --header: #f2f5f9;
+      --accent: #1b7f79;
+      --accent-dark: #0f5f5a;
+      --danger: #d95757;
+      --live: #e34242;
+      --shadow: 0 10px 28px rgba(23, 32, 42, 0.1);
+      --day-w: 86px;
+      --hour-w: 168px;
+      --row-h: 96px;
+      --row-pad: 8px;
+      --lane-gap: 5px;
+      --radius: 8px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    button, input, select { font: inherit; }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 18px 22px 14px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+      letter-spacing: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .help-wrap {
+      position: relative;
+      width: max-content;
+      flex: 0 0 auto;
+    }
+
+    .help-btn {
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: help;
+    }
+
+    .help-tooltip {
+      position: absolute;
+      left: 0;
+      top: 26px;
+      z-index: 80;
+      width: 360px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-4px);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+
+    .help-wrap:hover .help-tooltip,
+    .help-wrap:focus-within .help-tooltip {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .app-title-text {
+      display: inline-block;
+      max-width: min(100%, 520px);
+      cursor: text;
+    }
+
+    .app-title-input {
+      display: none;
+      width: min(100%, 520px);
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 1px 6px;
+      margin: -1px -6px 0;
+      font: inherit;
+      font-size: 22px;
+      line-height: 1.2;
+      font-weight: 800;
+      color: inherit;
+      background: #fff;
+    }
+
+    .app-title-input:focus {
+      outline: none;
+    }
+
+    .title.editing .app-title-text {
+      display: none;
+    }
+
+    .title.editing .help-wrap {
+      display: none;
+    }
+
+    .title.editing .app-title-input {
+      display: inline-block;
+    }
+
+    .actions, .filters, .legend {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .actions { justify-content: flex-end; }
+    .legend { justify-content: flex-end; gap: 14px; color: var(--muted); font-size: 12px; }
+
+    .week-status {
+      min-width: 104px;
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      background: #f7f9fc;
+      border: 1px solid transparent;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+    }
+
+    .week-status.changed {
+      color: var(--accent-dark);
+      background: rgba(27, 127, 121, 0.1);
+      border-color: rgba(27, 127, 121, 0.24);
+    }
+
+    .grid.week-changed .day-head,
+    .grid.week-changed .hour-head {
+      animation: weekPulse 420ms ease;
+    }
+
+    @keyframes weekPulse {
+      0% { background: #e9f6f4; }
+      100% { background: var(--header); }
+    }
+
+    .icon-btn, .text-btn {
+      height: 36px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+    }
+
+    .icon-btn { width: 38px; padding: 0; }
+    .text-btn { padding: 0 12px; font-weight: 650; font-size: 13px; }
+    .text-btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .text-btn.danger { color: var(--danger); }
+    .icon-btn:hover, .text-btn:hover { border-color: var(--accent); }
+    .text-btn.primary:hover { border-color: var(--accent-dark); background: var(--accent-dark); }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 18px;
+      align-items: center;
+      padding: 12px 22px;
+      background: #fbfcfe;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .live-strip {
+      margin: 14px 22px 0;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 12px;
+      box-shadow: 0 6px 16px rgba(23, 32, 42, 0.06);
+      overflow: hidden;
+    }
+
+    .live-badge {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--live);
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: 0.04em;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--live);
+      box-shadow: 0 0 0 0 rgba(227, 66, 66, 0.45);
+      animation: livePulse 1.35s ease-out infinite;
+    }
+
+    .live-items {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow: hidden;
+    }
+
+    .live-empty {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .live-item {
+      flex: 0 0 auto;
+      max-width: 260px;
+      border: 1px solid color-mix(in srgb, var(--live), #fff 72%);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--live), #fff 92%);
+      color: #8f2323;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 750;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    @keyframes livePulse {
+      100% { box-shadow: 0 0 0 9px rgba(227, 66, 66, 0); }
+    }
+
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    select, input[type="text"] {
+      height: 34px;
+      min-width: 150px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--ink);
+      padding: 0 10px;
+      outline: none;
+    }
+
+    input[type="text"] { width: 230px; }
+    textarea {
+      width: 100%;
+      min-height: 96px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--ink);
+      padding: 10px;
+      resize: vertical;
+      outline: none;
+    }
+    select:focus, input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(27, 127, 121, 0.14); }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--dot);
+      display: inline-block;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .platform-tools {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .scheduler-shell {
+      overflow: hidden;
+      padding: 16px 22px 22px;
+      position: relative;
+    }
+
+    .scroll-hint {
+      position: absolute;
+      top: 16px;
+      bottom: 22px;
+      width: 30px;
+      z-index: 90;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 140ms ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .scroll-hint.visible {
+      opacity: 1;
+    }
+
+    .scroll-hint.left {
+      left: calc(22px + var(--day-w));
+      background: linear-gradient(90deg, rgba(246, 247, 249, 0.58), rgba(246, 247, 249, 0));
+    }
+
+    .scroll-hint.right {
+      right: 22px;
+      background: linear-gradient(270deg, rgba(246, 247, 249, 0.58), rgba(246, 247, 249, 0));
+    }
+
+    .scroll-hint span {
+      width: 22px;
+      height: 22px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.72);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 3px 8px rgba(23, 32, 42, 0.08);
+    }
+
+    .scroll-hint span::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-top: 2px solid var(--muted);
+      border-right: 2px solid var(--muted);
+    }
+
+    .scroll-hint.left span::before {
+      transform: translateX(1px) rotate(-135deg);
+    }
+
+    .scroll-hint.right span::before {
+      transform: translateX(-1px) rotate(45deg);
+    }
+
+    .scheduler {
+      height: calc(100vh - 150px);
+      min-height: 520px;
+      overflow: auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      position: relative;
+    }
+
+    .grid {
+      width: max-content;
+      min-width: 100%;
+      display: grid;
+      grid-template-columns: var(--day-w) repeat(24, var(--hour-w));
+      position: relative;
+    }
+
+    .corner, .hour-head, .day-head {
+      background: var(--header);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .corner {
+      position: sticky;
+      left: 0;
+      top: 0;
+      z-index: 40;
+      height: 54px;
+      border-right: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .hour-head {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-right: 1px solid var(--line);
+      font-size: 12px;
+      font-weight: 750;
+      color: #384759;
+    }
+
+    .day-head {
+      position: sticky;
+      left: 0;
+      z-index: 30;
+      height: var(--row-h);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      padding: 0 14px;
+    }
+
+    .day-head strong { font-size: 18px; line-height: 1; }
+    .day-head span { color: var(--muted); font-size: 12px; font-weight: 650; }
+
+    .timeline-row {
+      grid-column: 2 / span 24;
+      position: relative;
+      height: var(--row-h);
+      border-bottom: 1px solid var(--line);
+      background:
+        repeating-linear-gradient(
+          to right,
+          #fff 0,
+          #fff calc(var(--hour-w) - 1px),
+          var(--line-soft) calc(var(--hour-w) - 1px),
+          var(--line-soft) var(--hour-w)
+        );
+      user-select: none;
+    }
+
+    .timeline-row.weekend {
+      background:
+        repeating-linear-gradient(
+          to right,
+          #fbfcfd 0,
+          #fbfcfd calc(var(--hour-w) - 1px),
+          var(--line-soft) calc(var(--hour-w) - 1px),
+          var(--line-soft) var(--hour-w)
+        );
+    }
+
+    .timeline-row.dragging { cursor: ew-resize; }
+
+    .day-head.today,
+    .timeline-row.today {
+      background:
+        repeating-linear-gradient(
+          to right,
+          rgba(27, 127, 121, 0.08) 0,
+          rgba(27, 127, 121, 0.08) calc(var(--hour-w) - 1px),
+          rgba(27, 127, 121, 0.16) calc(var(--hour-w) - 1px),
+          rgba(27, 127, 121, 0.16) var(--hour-w)
+        );
+    }
+
+    .day-head.today {
+      color: var(--accent-dark);
+    }
+
+    .day-head.daily,
+    .timeline-row.daily {
+      background:
+        repeating-linear-gradient(
+          to right,
+          rgba(73, 105, 168, 0.1) 0,
+          rgba(73, 105, 168, 0.1) calc(var(--hour-w) - 1px),
+          rgba(73, 105, 168, 0.18) calc(var(--hour-w) - 1px),
+          rgba(73, 105, 168, 0.18) var(--hour-w)
+        );
+    }
+
+    .day-head.daily {
+      color: #344d86;
+    }
+
+    .event {
+      position: absolute;
+      top: var(--row-pad);
+      height: 50px;
+      border-radius: 7px;
+      color: #fff;
+      padding: 9px 11px;
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.14);
+      overflow: hidden;
+      cursor: pointer;
+      outline: 1px solid rgba(255, 255, 255, 0.22);
+      min-width: 0;
+      touch-action: none;
+    }
+
+    .event.moving {
+      opacity: 0.86;
+      cursor: grabbing;
+    }
+
+    .event:hover, .event.selected {
+      outline: 2px solid var(--danger);
+      outline-offset: 2px;
+    }
+
+    .event-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 750;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .event-time {
+      display: block;
+      margin-top: 5px;
+      font-size: 11px;
+      line-height: 1.2;
+      opacity: 0.92;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .event.compact {
+      padding: 7px 8px;
+    }
+
+    .event.micro {
+      padding: 0;
+      border-radius: 4px;
+    }
+
+    .event.micro .event-title,
+    .event.micro .event-time {
+      display: none;
+    }
+
+    .event.compact .event-time,
+    .event.dense .event-time {
+      display: none;
+    }
+
+    .event.dense {
+      padding: 5px 8px;
+      border-radius: 6px;
+      box-shadow: 0 5px 12px rgba(0, 0, 0, 0.12);
+    }
+
+    .event.dense .event-title {
+      font-size: 11px;
+    }
+
+    .daily-ghost-event {
+      position: absolute;
+      height: 11px;
+      border: 1px dashed rgba(93, 105, 121, 0.58);
+      border-radius: 999px;
+      background: rgba(107, 119, 136, 0.11);
+      box-shadow: none;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .daily-ghost-event::after {
+      content: "매일";
+      position: absolute;
+      left: 7px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: rgba(78, 91, 108, 0.86);
+      font-size: 9px;
+      font-weight: 800;
+      line-height: 1;
+      white-space: nowrap;
+      opacity: 0;
+    }
+
+    .daily-ghost-event.wide::after {
+      opacity: 1;
+    }
+
+    .overflow-badge {
+      min-width: 34px;
+      height: 20px;
+      padding: 0 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 750;
+      box-shadow: 0 4px 10px rgba(23, 32, 42, 0.1);
+      cursor: pointer;
+      margin-top: 2px;
+    }
+
+    .overflow-badge:hover {
+      border-color: var(--accent);
+      color: var(--accent-dark);
+    }
+
+    .overflow-list {
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+      overflow: auto;
+    }
+
+    .overflow-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      gap: 4px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .overflow-item:hover {
+      border-color: var(--accent);
+    }
+
+    .overflow-item.dragging {
+      opacity: 0.55;
+    }
+
+    .overflow-item strong {
+      font-size: 13px;
+    }
+
+    .overflow-item span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .overflow-item .hidden-tag {
+      color: var(--danger);
+      font-weight: 750;
+    }
+
+    .handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 14px;
+      cursor: ew-resize;
+      z-index: 2;
+    }
+
+    .handle.left { left: 0; }
+    .handle.right { right: 0; }
+
+    .event.resize-left,
+    .event.resize-right {
+      cursor: ew-resize;
+    }
+
+    .draft {
+      position: absolute;
+      top: var(--row-pad);
+      height: 50px;
+      border: 2px dashed var(--accent);
+      background: rgba(27, 127, 121, 0.12);
+      border-radius: 7px;
+      pointer-events: none;
+    }
+
+    .context-menu {
+      position: fixed;
+      z-index: 200;
+      min-width: 132px;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(23, 32, 42, 0.16);
+      display: none;
+    }
+
+    .context-menu.open {
+      display: grid;
+      gap: 2px;
+    }
+
+    .context-menu button {
+      height: 32px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+      padding: 0 10px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .context-menu button:hover {
+      background: #f2f5f9;
+    }
+
+    .context-menu button[hidden] {
+      display: none;
+    }
+
+    .context-menu button:disabled {
+      color: #a7b0bc;
+      cursor: not-allowed;
+    }
+
+    .context-menu button:disabled:hover {
+      background: transparent;
+    }
+
+    .context-menu button.danger {
+      color: var(--danger);
+    }
+
+    .side-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(390px, calc(100vw - 24px));
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      box-shadow: -16px 0 34px rgba(23, 32, 42, 0.14);
+      transform: translateX(102%);
+      transition: transform 180ms ease;
+      z-index: 100;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .side-panel.open { transform: translateX(0); }
+
+    .trash-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(430px, calc(100vw - 24px));
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      box-shadow: -16px 0 34px rgba(23, 32, 42, 0.14);
+      transform: translateX(102%);
+      transition: transform 180ms ease;
+      z-index: 110;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .trash-panel.open { transform: translateX(0); }
+
+    .panel-head, .panel-foot {
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .panel-foot { border-top: 1px solid var(--line); border-bottom: 0; justify-content: flex-end; }
+    .panel-head h2 { margin: 0; font-size: 17px; letter-spacing: 0; }
+
+    .panel-body {
+      padding: 16px;
+      overflow: auto;
+      display: grid;
+      align-content: start;
+      gap: 14px;
+    }
+
+    .form-field { display: grid; gap: 7px; }
+    .form-field label { color: var(--muted); font-size: 12px; font-weight: 750; }
+    .form-field input, .form-field select { width: 100%; min-width: 0; }
+    .time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .repeat-sentence {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .repeat-sentence input {
+      width: 86px;
+    }
+
+    .repeat-group-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .repeat-group-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .repeat-group-item strong {
+      display: block;
+      font-size: 13px;
+    }
+
+    .repeat-group-item span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .inline-add-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .day-checks {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .day-checks label {
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--ink);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .day-checks input {
+      width: 13px;
+      height: 13px;
+      accent-color: var(--accent);
+    }
+
+    .empty-state {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 14px;
+      border: 1px solid var(--line-soft);
+      border-radius: 7px;
+      background: #fbfcfe;
+    }
+
+    .kbd {
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      color: var(--muted);
+      border-radius: 5px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .trash-list {
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+      overflow: auto;
+    }
+
+    .trash-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      background: #fff;
+    }
+
+    .trash-item strong {
+      font-size: 13px;
+    }
+
+    .trash-item span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .trash-item-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .platform-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .platform-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+      background: #fff;
+    }
+
+    .platform-row {
+      display: grid;
+      grid-template-columns: 1fr 38px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .color-input {
+      width: 38px;
+      min-width: 38px;
+      height: 32px;
+      padding: 3px;
+    }
+
+    .platform-presets summary {
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      list-style: none;
+    }
+
+    .platform-presets summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .swatches {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding-top: 6px;
+    }
+
+    .swatch {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      background: var(--swatch);
+      cursor: pointer;
+    }
+
+    .swatch.selected {
+      border-color: var(--ink);
+    }
+
+    .platform-add-row {
+      display: grid;
+      grid-template-columns: 1fr 38px auto;
+      gap: 8px;
+      align-items: end;
+    }
+
+    svg {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    @media (max-width: 820px) {
+      :root {
+        --day-w: 70px;
+        --hour-w: 132px;
+        --row-h: 88px;
+      }
+
+      .topbar, .toolbar {
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+
+      .topbar, .toolbar {
+        display: grid;
+        grid-template-columns: 1fr;
+        align-items: stretch;
+      }
+
+      .actions, .legend, .platform-tools { justify-content: flex-start; }
+      .scheduler-shell { padding: 12px 14px 16px; }
+      .scroll-hint { top: 12px; bottom: 16px; }
+      .scroll-hint.left { left: calc(14px + var(--day-w)); }
+      .scroll-hint.right { right: 14px; }
+      .live-strip { margin: 12px 14px 0; }
+      .scheduler { height: calc(100vh - 230px); }
+      input[type="text"] { width: min(100%, 320px); }
+      .help-tooltip { width: min(78vw, 340px); }
+      .day-head { padding: 0 10px; }
+      .day-head strong { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="title">
+        <h1>
+          <span class="help-wrap">
+            <button class="help-btn" type="button" aria-label="사용 방법">?</button>
+            <span class="help-tooltip" role="tooltip">
+              요일별 24시간 타임라인에서 데이터 파이프라인 실행 시간을 확인하고 조정합니다.<br>
+              더블클릭으로 생성, 드래그로 시간 이동, 좌우 가장자리로 시간 조정, 우클릭으로 편집/삭제합니다.
+            </span>
+          </span>
+          <span class="app-title-text" id="appTitleText" title="더블클릭해서 제목 수정">Weekly Pipeline Scheduler</span>
+          <input class="app-title-input" id="appTitleInput" type="text" value="Weekly Pipeline Scheduler" aria-label="화면 제목">
+        </h1>
+      </div>
+      <div class="actions">
+        <button class="icon-btn" id="prevWeek" title="이전 주" aria-label="이전 주">
+          <svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"></path></svg>
+        </button>
+        <button class="text-btn" id="todayBtn">이번 주</button>
+        <button class="icon-btn" id="nextWeek" title="다음 주" aria-label="다음 주">
+          <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"></path></svg>
+        </button>
+        <span class="week-status" id="weekStatus" aria-live="polite"></span>
+        <button class="text-btn" id="trashBtn">휴지통</button>
+        <button class="text-btn" id="repeatBtn">반복 스케줄 만들기</button>
+        <button class="text-btn primary" id="newBtn">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+          새 작업
+        </button>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="filters">
+        <label class="field">
+          구분
+          <select id="platformFilter">
+            <option value="all">전체</option>
+          </select>
+        </label>
+        <label class="field">
+          검색
+          <input type="text" id="searchInput" placeholder="파이프라인명, 소유자">
+        </label>
+      </div>
+      <div class="platform-tools">
+        <div class="legend" id="legend" aria-label="구분"></div>
+        <button class="icon-btn" id="platformManageBtn" title="구분 추가 및 편집" aria-label="구분 추가 및 편집">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+        </button>
+      </div>
+    </section>
+
+    <section class="live-strip" aria-label="현재 진행 중인 작업">
+      <div class="live-badge"><span class="live-dot"></span>LIVE</div>
+      <div class="live-items" id="liveItems"></div>
+    </section>
+
+    <section class="scheduler-shell">
+      <div class="scroll-hint left" id="scrollHintLeft" aria-hidden="true"><span></span></div>
+      <div class="scroll-hint right" id="scrollHintRight" aria-hidden="true"><span></span></div>
+      <div class="scheduler" id="scheduler">
+        <div class="grid" id="grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <aside class="side-panel" id="sidePanel" aria-label="스케줄 편집">
+    <div class="panel-head">
+      <h2 id="panelTitle">스케줄</h2>
+      <button class="icon-btn" id="closePanel" title="닫기" aria-label="닫기">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="panel-body">
+      <div class="form-field">
+        <label for="jobName">파이프라인</label>
+        <input type="text" id="jobName">
+      </div>
+      <div class="form-field">
+        <label for="jobPlatform">구분</label>
+        <select id="jobPlatform"></select>
+      </div>
+      <div class="form-field">
+        <label>요일</label>
+        <div class="day-checks" id="jobDays"></div>
+      </div>
+      <div class="time-row">
+        <div class="form-field">
+          <label for="startTime">시작</label>
+          <select id="startTime"></select>
+        </div>
+        <div class="form-field">
+          <label for="endTime">종료</label>
+          <select id="endTime"></select>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="owner">소유자</label>
+        <select id="owner"></select>
+        <div class="inline-add-row">
+          <input type="text" id="newOwnerName" placeholder="소유자 추가">
+          <button class="text-btn" id="addOwnerBtn" type="button">추가</button>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="memo">메모</label>
+        <textarea id="memo" placeholder="이 스케줄의 의미, 주의사항, 운영 메모"></textarea>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="text-btn" id="deleteBtn">삭제</button>
+      <button class="text-btn primary" id="saveBtn">저장</button>
+    </div>
+  </aside>
+
+  <aside class="side-panel" id="repeatPanel" aria-label="반복 스케줄 생성">
+    <div class="panel-head">
+      <h2>반복 스케줄</h2>
+      <button class="icon-btn" id="closeRepeatPanel" title="닫기" aria-label="닫기">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="panel-body">
+      <div class="form-field">
+        <label for="repeatName">파이프라인</label>
+        <input type="text" id="repeatName">
+      </div>
+      <div class="form-field">
+        <label for="repeatPlatform">구분</label>
+        <select id="repeatPlatform"></select>
+      </div>
+      <div class="form-field">
+        <label>반복 요일</label>
+        <div class="day-checks" id="repeatDays"></div>
+      </div>
+      <div class="time-row">
+        <div class="form-field">
+          <label for="repeatStartTime">시작 시간</label>
+          <select id="repeatStartTime"></select>
+        </div>
+        <div class="form-field">
+          <label for="repeatEndTime">종료 시간</label>
+          <select id="repeatEndTime"></select>
+        </div>
+      </div>
+      <div class="form-field">
+        <label>반복 조건</label>
+        <div class="repeat-sentence">
+          <input type="number" id="repeatInterval" min="5" max="720" step="5" aria-label="반복 간격">
+          <span>분 마다</span>
+          <input type="number" id="repeatDuration" min="5" max="720" step="5" aria-label="1회 실행 시간">
+          <span>분씩 반복</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="repeatOwner">소유자</label>
+        <select id="repeatOwner"></select>
+      </div>
+      <div class="form-field">
+        <label for="repeatMemo">메모</label>
+        <textarea id="repeatMemo" placeholder="반복 생성된 스케줄에 공통으로 남길 메모"></textarea>
+      </div>
+      <div class="form-field">
+        <label>반복으로 만든 스케줄</label>
+        <div class="repeat-group-list" id="repeatGroupList"></div>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="text-btn" id="cancelRepeatBtn">취소</button>
+      <button class="text-btn primary" id="createRepeatBtn">생성</button>
+    </div>
+  </aside>
+
+  <aside class="trash-panel" id="trashPanel" aria-label="휴지통">
+    <div class="panel-head">
+      <h2>휴지통</h2>
+      <div class="actions">
+        <button class="text-btn danger" id="emptyTrashBtn">비우기</button>
+        <button class="icon-btn" id="closeTrash" title="닫기" aria-label="닫기">
+          <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+        </button>
+      </div>
+    </div>
+    <div class="trash-list" id="trashList"></div>
+  </aside>
+
+  <aside class="trash-panel" id="platformPanel" aria-label="구분 관리">
+    <div class="panel-head">
+      <h2>구분</h2>
+      <button class="icon-btn" id="closePlatformPanel" title="닫기" aria-label="닫기">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="panel-body">
+      <div class="platform-list" id="platformList"></div>
+      <div class="form-field">
+        <label for="newPlatformName">새 항목</label>
+        <div class="platform-add-row">
+          <input type="text" id="newPlatformName" placeholder="이름">
+          <input type="color" class="color-input" id="newPlatformColor" value="#1b7f79">
+          <button class="text-btn primary" id="addPlatformBtn">추가</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <aside class="trash-panel" id="overflowPanel" aria-label="요일 일정">
+    <div class="panel-head">
+      <h2 id="overflowTitle">요일 일정</h2>
+      <button class="icon-btn" id="closeOverflowPanel" title="닫기" aria-label="닫기">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="overflow-list" id="overflowList"></div>
+  </aside>
+
+  <div class="context-menu" id="contextMenu" role="menu" aria-label="작업 메뉴">
+    <button type="button" id="contextEdit" role="menuitem">편집</button>
+    <button type="button" id="contextCopy" role="menuitem">복사</button>
+    <button type="button" id="contextPaste" role="menuitem">붙여넣기</button>
+    <button type="button" class="danger" id="contextDelete" role="menuitem">삭제</button>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "weekly-pipeline-scheduler-state-v1";
+    const API_STATE_URL = "/api/state";
+    let saveTimer = null;
+    let appReady = false;
+
+    let platforms = [
+      { id: "commerce", name: "Commerce", color: "#1b7f79" },
+      { id: "marketing", name: "Marketing", color: "#4969a8" },
+      { id: "finance", name: "Finance", color: "#8b5f2c" },
+      { id: "crm", name: "CRM", color: "#8a4d86" },
+      { id: "partner", name: "Partner", color: "#b34f3d" }
+    ];
+
+    const days = ["일", "월", "화", "수", "목", "금", "토"];
+    let owners = ["Data Platform", "Analytics Eng", "Growth Ops", "Finance Data", "Lifecycle", "Integration", "BI", "Owner"];
+    let weekOffset = 0;
+    let selectedId = null;
+    let selectedIds = new Set();
+    let editingId = null;
+    let dragState = null;
+    let panelOpenedAt = 0;
+    let copiedEvent = null;
+    let contextTarget = null;
+    let trash = [];
+    let overflowDragId = null;
+    let overflowDidDrag = false;
+    let appTitle = "Weekly Pipeline Scheduler";
+    let repeatGroups = [];
+    let events = [
+      { id: crypto.randomUUID(), platform: "commerce", day: 1, start: 90, end: 160, title: "Orders CDC sync", name: "Orders CDC sync", owner: "Data Platform", memo: "" },
+      { id: crypto.randomUUID(), platform: "commerce", day: 1, start: 180, end: 300, name: "Order mart build", owner: "Analytics Eng" },
+      { id: crypto.randomUUID(), platform: "marketing", day: 2, start: 360, end: 480, name: "Ad spend import", owner: "Growth Ops" },
+      { id: crypto.randomUUID(), platform: "finance", day: 3, start: 60, end: 180, name: "Revenue reconciliation", owner: "Finance Data" },
+      { id: crypto.randomUUID(), platform: "crm", day: 4, start: 540, end: 660, name: "Segment export", owner: "Lifecycle" },
+      { id: crypto.randomUUID(), platform: "partner", day: 5, start: 1260, end: 1380, name: "Partner settlement file", owner: "Integration" },
+      { id: crypto.randomUUID(), platform: "finance", day: 6, start: 420, end: 540, name: "Weekly KPI snapshot", owner: "BI" }
+    ];
+    events.forEach((event, index) => {
+      event.priority = index + 1;
+    });
+
+    function currentState() {
+      return {
+        appTitle,
+        weekOffset,
+        platforms,
+        owners,
+        events,
+        trash,
+        repeatGroups
+      };
+    }
+
+    function applyState(state) {
+      if (!state || typeof state !== "object") return;
+      if (typeof state.appTitle === "string") appTitle = state.appTitle;
+      if (Number.isFinite(state.weekOffset)) weekOffset = state.weekOffset;
+      if (Array.isArray(state.platforms) && state.platforms.length) platforms = state.platforms;
+      if (Array.isArray(state.owners) && state.owners.length) owners = state.owners;
+      if (Array.isArray(state.events)) events = state.events;
+      if (Array.isArray(state.trash)) trash = state.trash;
+      if (Array.isArray(state.repeatGroups)) repeatGroups = state.repeatGroups;
+      events.forEach((event, index) => {
+        if (!event.id) event.id = crypto.randomUUID();
+        if (event.priority == null) event.priority = index + 1;
+        if (!event.name) event.name = event.title || "Untitled schedule";
+        delete event.title;
+      });
+    }
+
+    function saveState() {
+      if (!appReady) return;
+      const state = currentState();
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (error) {
+        console.warn("Failed to save scheduler state", error);
+      }
+      if (!location.protocol.startsWith("http")) return;
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        fetch(API_STATE_URL, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(state)
+        }).catch((error) => console.warn("Failed to save scheduler state to server", error));
+      }, 250);
+    }
+
+    async function loadState() {
+      if (location.protocol.startsWith("http")) {
+        try {
+          const response = await fetch(API_STATE_URL, { headers: { "Accept": "application/json" } });
+          if (response.ok) {
+            const state = await response.json();
+            if (state && Object.keys(state).length) {
+              applyState(state);
+              return;
+            }
+          }
+        } catch (error) {
+          console.warn("Failed to load scheduler state from server", error);
+        }
+      }
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        applyState(JSON.parse(raw));
+      } catch (error) {
+        console.warn("Failed to load scheduler state", error);
+      }
+    }
+
+    const el = {
+      titleBlock: document.querySelector(".title"),
+      appTitleText: document.querySelector("#appTitleText"),
+      appTitleInput: document.querySelector("#appTitleInput"),
+      scheduler: document.querySelector("#scheduler"),
+      scrollHintLeft: document.querySelector("#scrollHintLeft"),
+      scrollHintRight: document.querySelector("#scrollHintRight"),
+      grid: document.querySelector("#grid"),
+      platformFilter: document.querySelector("#platformFilter"),
+      searchInput: document.querySelector("#searchInput"),
+      legend: document.querySelector("#legend"),
+      liveItems: document.querySelector("#liveItems"),
+      prevWeek: document.querySelector("#prevWeek"),
+      nextWeek: document.querySelector("#nextWeek"),
+      todayBtn: document.querySelector("#todayBtn"),
+      weekStatus: document.querySelector("#weekStatus"),
+      trashBtn: document.querySelector("#trashBtn"),
+      repeatBtn: document.querySelector("#repeatBtn"),
+      newBtn: document.querySelector("#newBtn"),
+      platformManageBtn: document.querySelector("#platformManageBtn"),
+      platformPanel: document.querySelector("#platformPanel"),
+      closePlatformPanel: document.querySelector("#closePlatformPanel"),
+      platformList: document.querySelector("#platformList"),
+      overflowPanel: document.querySelector("#overflowPanel"),
+      closeOverflowPanel: document.querySelector("#closeOverflowPanel"),
+      overflowTitle: document.querySelector("#overflowTitle"),
+      overflowList: document.querySelector("#overflowList"),
+      newPlatformName: document.querySelector("#newPlatformName"),
+      newPlatformColor: document.querySelector("#newPlatformColor"),
+      addPlatformBtn: document.querySelector("#addPlatformBtn"),
+      sidePanel: document.querySelector("#sidePanel"),
+      panelTitle: document.querySelector("#panelTitle"),
+      closePanel: document.querySelector("#closePanel"),
+      jobName: document.querySelector("#jobName"),
+      jobPlatform: document.querySelector("#jobPlatform"),
+      jobDays: document.querySelector("#jobDays"),
+      startTime: document.querySelector("#startTime"),
+      endTime: document.querySelector("#endTime"),
+      owner: document.querySelector("#owner"),
+      newOwnerName: document.querySelector("#newOwnerName"),
+      addOwnerBtn: document.querySelector("#addOwnerBtn"),
+      memo: document.querySelector("#memo"),
+      saveBtn: document.querySelector("#saveBtn"),
+      deleteBtn: document.querySelector("#deleteBtn"),
+      repeatPanel: document.querySelector("#repeatPanel"),
+      closeRepeatPanel: document.querySelector("#closeRepeatPanel"),
+      repeatName: document.querySelector("#repeatName"),
+      repeatPlatform: document.querySelector("#repeatPlatform"),
+      repeatDays: document.querySelector("#repeatDays"),
+      repeatStartTime: document.querySelector("#repeatStartTime"),
+      repeatEndTime: document.querySelector("#repeatEndTime"),
+      repeatInterval: document.querySelector("#repeatInterval"),
+      repeatDuration: document.querySelector("#repeatDuration"),
+      repeatOwner: document.querySelector("#repeatOwner"),
+      repeatMemo: document.querySelector("#repeatMemo"),
+      repeatGroupList: document.querySelector("#repeatGroupList"),
+      cancelRepeatBtn: document.querySelector("#cancelRepeatBtn"),
+      createRepeatBtn: document.querySelector("#createRepeatBtn"),
+      trashPanel: document.querySelector("#trashPanel"),
+      closeTrash: document.querySelector("#closeTrash"),
+      emptyTrashBtn: document.querySelector("#emptyTrashBtn"),
+      trashList: document.querySelector("#trashList"),
+      contextMenu: document.querySelector("#contextMenu"),
+      contextEdit: document.querySelector("#contextEdit"),
+      contextCopy: document.querySelector("#contextCopy"),
+      contextPaste: document.querySelector("#contextPaste"),
+      contextDelete: document.querySelector("#contextDelete")
+    };
+
+    function pad(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function minutesToTime(minutes) {
+      const clamped = Math.max(0, Math.min(1440, minutes));
+      return `${pad(Math.floor(clamped / 60))}:${pad(clamped % 60)}`;
+    }
+
+    function timeLabel(start, end) {
+      return `${minutesToTime(start)}-${minutesToTime(end)}`;
+    }
+
+    function eventTitle(event) {
+      return event.name || "Untitled schedule";
+    }
+
+    function updateAppTitle() {
+      const title = appTitle.trim() || "Weekly Pipeline Scheduler";
+      el.appTitleInput.value = title;
+      el.appTitleText.textContent = title;
+      document.title = title;
+    }
+
+    function startAppTitleEdit() {
+      el.titleBlock.classList.add("editing");
+      el.appTitleInput.value = appTitle.trim() || "Weekly Pipeline Scheduler";
+      requestAnimationFrame(() => {
+        el.appTitleInput.focus();
+        el.appTitleInput.select();
+      });
+    }
+
+    function finishAppTitleEdit() {
+      appTitle = el.appTitleInput.value.trim() || "Weekly Pipeline Scheduler";
+      updateAppTitle();
+      el.titleBlock.classList.remove("editing");
+      saveState();
+    }
+
+    function platformMeta(id) {
+      return platforms.find((platform) => platform.id === id) || platforms[0];
+    }
+
+    function renderOwnerControls(selected = el.owner.value) {
+      const repeatSelected = el.repeatOwner?.value || "";
+      el.owner.innerHTML = "";
+      if (el.repeatOwner) el.repeatOwner.innerHTML = `<option value="">선택</option>`;
+      owners.forEach((owner) => el.owner.add(new Option(owner, owner)));
+      owners.forEach((owner) => el.repeatOwner?.add(new Option(owner, owner)));
+      if (owners.includes(selected)) el.owner.value = selected;
+      if (el.repeatOwner && owners.includes(repeatSelected)) el.repeatOwner.value = repeatSelected;
+    }
+
+    function platformIdFromName(name) {
+      const base = name.trim().toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-").replace(/^-|-$/g, "") || "platform";
+      let id = base;
+      let index = 2;
+      while (platforms.some((platform) => platform.id === id)) {
+        id = `${base}-${index}`;
+        index += 1;
+      }
+      return id;
+    }
+
+    function renderPlatformControls() {
+      const currentFilter = el.platformFilter.value || "all";
+      const currentJobPlatform = el.jobPlatform.value || platforms[0]?.id;
+      const currentRepeatPlatform = el.repeatPlatform?.value || "";
+      el.platformFilter.innerHTML = `<option value="all">전체</option>`;
+      el.jobPlatform.innerHTML = "";
+      if (el.repeatPlatform) el.repeatPlatform.innerHTML = `<option value="">선택</option>`;
+      el.legend.innerHTML = "";
+
+      platforms.forEach((platform) => {
+        const option = new Option(platform.name, platform.id);
+        el.platformFilter.add(option.cloneNode(true));
+        el.jobPlatform.add(option);
+        el.repeatPlatform?.add(option.cloneNode(true));
+
+        const legendItem = document.createElement("span");
+        legendItem.innerHTML = `<i class="dot" style="--dot:${platform.color}"></i>${escapeHtml(platform.name)}`;
+        el.legend.append(legendItem);
+      });
+
+      el.platformFilter.value = platforms.some((platform) => platform.id === currentFilter) ? currentFilter : "all";
+      if (platforms.some((platform) => platform.id === currentJobPlatform)) {
+        el.jobPlatform.value = currentJobPlatform;
+      }
+      if (el.repeatPlatform && platforms.some((platform) => platform.id === currentRepeatPlatform)) {
+        el.repeatPlatform.value = currentRepeatPlatform;
+      }
+    }
+
+    function renderPlatformManager() {
+      const presets = ["#1b7f79", "#4969a8", "#8b5f2c", "#8a4d86", "#b34f3d", "#2f7d32", "#b04f7f", "#4f6f7f"];
+      el.platformList.innerHTML = platforms.map((platform) => `
+        <div class="platform-item" data-id="${platform.id}">
+          <div class="platform-row">
+            <input type="text" data-platform-name="${platform.id}" value="${escapeHtml(platform.name)}">
+            <input type="color" class="color-input" data-platform-color="${platform.id}" value="${platform.color}">
+          </div>
+          <details class="platform-presets">
+            <summary>프리셋 색상</summary>
+            <div class="swatches">
+              ${presets.map((color) => `<button class="swatch${color === platform.color ? " selected" : ""}" style="--swatch:${color}" data-platform-swatch="${platform.id}" data-color="${color}" title="${color}" aria-label="${color}"></button>`).join("")}
+            </div>
+          </details>
+        </div>
+      `).join("");
+    }
+
+    function openOverflowPanel(dayIndex, hiddenIds = []) {
+      const hiddenSet = new Set(hiddenIds);
+      const items = filteredEvents()
+        .filter((event) => String(event.day) === String(dayIndex))
+        .sort(sortByPriority);
+      el.overflowList.dataset.day = String(dayIndex);
+      el.overflowTitle.textContent = `${dayLabel(dayIndex)} 전체 일정`;
+      el.overflowList.innerHTML = items.map((event) => `
+        <button class="overflow-item" draggable="true" data-overflow-event="${event.id}">
+          <strong>${escapeHtml(eventTitle(event))}</strong>
+          <span>${timeLabel(event.start, event.end)} · ${platformMeta(event.platform).name} · ${escapeHtml(event.owner)}${hiddenSet.has(event.id) ? ` · <span class="hidden-tag">숨겨짐</span>` : ""}</span>
+        </button>
+      `).join("");
+      el.overflowPanel.classList.add("open");
+    }
+
+    function snapMinutes(raw) {
+      return Math.max(0, Math.min(1440, Math.round(raw / 5) * 5));
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function getWeekStart(offset) {
+      const now = new Date();
+      const sunday = new Date(now);
+      sunday.setDate(now.getDate() - now.getDay() + offset * 7);
+      sunday.setHours(0, 0, 0, 0);
+      return sunday;
+    }
+
+    function formatDate(date) {
+      return `${date.getMonth() + 1}/${date.getDate()}`;
+    }
+
+    function dayLabel(dayValue) {
+      return String(dayValue) === "daily" ? "매일" : days[Number(dayValue)];
+    }
+
+    function parseDayValue(value) {
+      return value === "daily" ? "daily" : Number(value);
+    }
+
+    function scrollToInitialTime() {
+      requestAnimationFrame(() => {
+        const hourWidth = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--hour-w")) || 168;
+        el.scheduler.scrollLeft = hourWidth * 6;
+        updateScrollHints();
+      });
+    }
+
+    function updateScrollHints() {
+      const maxScroll = el.scheduler.scrollWidth - el.scheduler.clientWidth;
+      el.scrollHintLeft.classList.toggle("visible", el.scheduler.scrollLeft > 8);
+      el.scrollHintRight.classList.toggle("visible", el.scheduler.scrollLeft < maxScroll - 8);
+    }
+
+    function updateWeekStatus(weekStart) {
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      const prefix = weekOffset === 0 ? "이번 주" : weekOffset > 0 ? `+${weekOffset}주` : `${weekOffset}주`;
+      el.weekStatus.textContent = `${prefix} · ${formatDate(weekStart)}-${formatDate(weekEnd)}`;
+    }
+
+    function showWeekChangeFeedback() {
+      el.weekStatus.classList.remove("changed");
+      el.grid.classList.remove("week-changed");
+      void el.weekStatus.offsetWidth;
+      el.weekStatus.classList.add("changed");
+      el.grid.classList.add("week-changed");
+      window.clearTimeout(showWeekChangeFeedback.timer);
+      showWeekChangeFeedback.timer = window.setTimeout(() => {
+        el.weekStatus.classList.remove("changed");
+        el.grid.classList.remove("week-changed");
+      }, 520);
+    }
+
+    function filteredEvents() {
+      const selected = el.platformFilter.value;
+      const query = el.searchInput.value.trim().toLowerCase();
+      return events.filter((event) => {
+        if (selected !== "all" && event.platform !== selected) return false;
+        if (!query) return true;
+        return [eventTitle(event), event.name, event.owner, platformMeta(event.platform).name, event.memo || ""]
+          .some((value) => value.toLowerCase().includes(query));
+      });
+    }
+
+    function updateLiveStatus() {
+      const now = new Date();
+      const today = now.getDay();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const activeEvents = filteredEvents()
+        .filter((event) => (event.day === "daily" || event.day === today) && event.start <= currentMinutes && currentMinutes < event.end)
+        .sort(sortByPriority);
+
+      if (!activeEvents.length) {
+        el.liveItems.innerHTML = `<span class="live-empty">현재 진행 중인 작업이 없습니다.</span>`;
+        return;
+      }
+
+      el.liveItems.innerHTML = activeEvents.map((event) => `
+        <span class="live-item" title="${escapeHtml(eventTitle(event))}">
+          ${escapeHtml(eventTitle(event))} · ${dayLabel(event.day)} · ${timeLabel(event.start, event.end)}
+        </span>
+      `).join("");
+    }
+
+    function priorityValue(event) {
+      return event.priority ?? event.start;
+    }
+
+    function sortByPriority(a, b) {
+      return priorityValue(a) - priorityValue(b) || a.start - b.start || a.end - b.end;
+    }
+
+    function layoutDayEvents(dayEvents) {
+      const sorted = [...dayEvents].sort(sortByPriority);
+      const laneEnds = [];
+      const layouts = new Map();
+
+      sorted.forEach((event) => {
+        let lane = laneEnds.findIndex((end) => event.start >= end);
+        if (lane === -1) {
+          lane = laneEnds.length;
+          laneEnds.push(event.end);
+        } else {
+          laneEnds[lane] = event.end;
+        }
+        layouts.set(event.id, { lane });
+      });
+
+      const laneCount = Math.max(1, laneEnds.length);
+      layouts.forEach((layout) => {
+        layout.laneCount = laneCount;
+      });
+
+      return { layouts, laneCount };
+    }
+
+    function populateControls() {
+      renderPlatformControls();
+      renderPlatformManager();
+      renderOwnerControls("Owner");
+
+      const dailyLabel = document.createElement("label");
+      dailyLabel.innerHTML = `<input type="checkbox" value="daily"><span>매일</span>`;
+      el.jobDays.append(dailyLabel);
+      const repeatDailyLabel = document.createElement("label");
+      repeatDailyLabel.innerHTML = `<input type="checkbox" value="daily"><span>매일</span>`;
+      el.repeatDays.append(repeatDailyLabel);
+
+      days.forEach((day, index) => {
+        const label = document.createElement("label");
+        label.innerHTML = `<input type="checkbox" value="${index}"><span>${day}</span>`;
+        el.jobDays.append(label);
+
+        const repeatLabel = document.createElement("label");
+        repeatLabel.innerHTML = `<input type="checkbox" value="${index}"><span>${day}</span>`;
+        el.repeatDays.append(repeatLabel);
+      });
+
+      for (let minutes = 0; minutes <= 1440; minutes += 5) {
+        const label = minutesToTime(minutes);
+        el.startTime.add(new Option(label, minutes));
+        el.endTime.add(new Option(label, minutes));
+        if (minutes === 0) {
+          el.repeatStartTime.add(new Option("선택", ""));
+          el.repeatEndTime.add(new Option("선택", ""));
+        }
+        el.repeatStartTime.add(new Option(label, minutes));
+        el.repeatEndTime.add(new Option(label, minutes));
+      }
+      el.repeatStartTime.value = "";
+      el.repeatEndTime.value = "";
+      setRepeatDays([]);
+    }
+
+    function render() {
+      const weekStart = getWeekStart(weekOffset);
+      const matchingEvents = filteredEvents();
+      el.grid.innerHTML = "";
+      updateWeekStatus(weekStart);
+      updateLiveStatus();
+
+      const corner = document.createElement("div");
+      corner.className = "corner";
+      corner.textContent = "요일 / 시간";
+      el.grid.append(corner);
+
+      for (let hour = 0; hour < 24; hour += 1) {
+        const head = document.createElement("div");
+        head.className = "hour-head";
+        head.textContent = `${pad(hour)}:00`;
+        el.grid.append(head);
+      }
+
+      const appendTimelineRow = ({ dayKey, title, subtitle = "", isToday = false, className = "" }) => {
+        const dayEvents = matchingEvents.filter((event) => String(event.day) === String(dayKey)).sort(sortByPriority);
+        const dailyEvents = dayKey === "daily"
+          ? []
+          : matchingEvents.filter((event) => String(event.day) === "daily").sort(sortByPriority);
+        const maxVisibleEvents = 4;
+        const visibleEvents = dayEvents.slice(0, maxVisibleEvents);
+        const hiddenEvents = dayEvents.slice(maxVisibleEvents);
+        const hiddenCount = dayEvents.length - visibleEvents.length;
+        const { layouts, laneCount } = layoutDayEvents(visibleEvents);
+
+        const dayHead = document.createElement("div");
+        dayHead.className = `day-head${className ? ` ${className}` : ""}${isToday ? " today" : ""}`;
+        dayHead.innerHTML = `<strong>${title}</strong>${subtitle ? `<span>${subtitle}</span>` : ""}`;
+        if (hiddenCount > 0) {
+          const badge = document.createElement("button");
+          badge.className = "overflow-badge";
+          badge.type = "button";
+          badge.textContent = `+${hiddenCount}`;
+          badge.title = `${hiddenCount}개 더 있음`;
+          badge.dataset.day = String(dayKey);
+          badge.dataset.hiddenIds = hiddenEvents.map((event) => event.id).join(",");
+          badge.addEventListener("click", (eventObj) => {
+            eventObj.stopPropagation();
+            openOverflowPanel(dayKey, hiddenEvents.map((event) => event.id));
+          });
+          dayHead.append(badge);
+        }
+        el.grid.append(dayHead);
+
+        const row = document.createElement("div");
+        row.className = `timeline-row${className ? ` ${className}` : ""}${isToday ? " today" : ""}`;
+        row.dataset.day = String(dayKey);
+        row.dataset.laneCount = String(laneCount);
+        attachRowDrag(row);
+
+        dailyEvents.forEach((event, index) => row.append(renderDailyGhostEvent(event, index)));
+        visibleEvents.forEach((event) => row.append(renderEvent(event, {
+          ...layouts.get(event.id),
+          laneCount
+        })));
+        el.grid.append(row);
+      };
+
+      appendTimelineRow({ dayKey: "daily", title: "매일", subtitle: "Daily", className: "daily" });
+
+      days.forEach((day, dayIndex) => {
+        const date = new Date(weekStart);
+        date.setDate(weekStart.getDate() + dayIndex);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const isToday = date.getTime() === today.getTime();
+        appendTimelineRow({
+          dayKey: dayIndex,
+          title: day,
+          subtitle: formatDate(date),
+          isToday,
+          className: dayIndex === 0 || dayIndex === 6 ? "weekend" : ""
+        });
+      });
+      saveState();
+      updateScrollHints();
+    }
+
+    function renderDailyGhostEvent(event, index) {
+      const node = document.createElement("div");
+      const widthStyle = eventWidthStyle(event.start, event.end);
+      node.className = `daily-ghost-event${event.end - event.start >= 40 ? " wide" : ""}`;
+      node.title = `${eventTitle(event)} · 매일 · ${timeLabel(event.start, event.end)}`;
+      node.style.left = `calc(var(--hour-w) * ${event.start / 60} + 8px)`;
+      node.style.minWidth = widthStyle.minWidth;
+      node.style.width = widthStyle.width;
+      node.style.top = `${8 + (index % 3) * 14}px`;
+      return node;
+    }
+
+    function renderEvent(event, layout = { lane: 0 }) {
+      const node = document.createElement("div");
+      const duration = event.end - event.start;
+      const platform = platformMeta(event.platform);
+      const laneCount = layout.laneCount || 1;
+      const rowHeight = 96;
+      const laneGap = laneCount > 1 ? 4 : 0;
+      const eventHeight = laneCount === 1
+        ? 46
+        : Math.max(14, Math.floor((rowHeight - 20 - laneGap * (laneCount - 1)) / laneCount));
+      const rowPad = laneCount === 1
+        ? Math.floor((rowHeight - eventHeight) / 2)
+        : Math.floor((rowHeight - eventHeight * laneCount - laneGap * (laneCount - 1)) / 2);
+      const dense = laneCount > 1 || duration < 60;
+      const micro = duration <= 5;
+      const widthStyle = eventWidthStyle(event.start, event.end);
+      node.className = `event${duration < 60 ? " compact" : ""}${dense ? " dense" : ""}${micro ? " micro" : ""}${selectedIds.has(event.id) ? " selected" : ""}`;
+      node.dataset.id = event.id;
+      node.style.top = `${rowPad + layout.lane * (eventHeight + laneGap)}px`;
+      node.style.height = `${eventHeight}px`;
+      node.style.left = `calc(var(--hour-w) * ${event.start / 60} + 8px)`;
+      node.style.minWidth = widthStyle.minWidth;
+      node.style.width = widthStyle.width;
+      node.style.background = platform.color;
+      node.style.zIndex = selectedIds.has(event.id) ? 10 : 1 + layout.lane;
+      node.innerHTML = `
+        <div class="handle left" data-handle="left"></div>
+        <div class="event-title"><span>${escapeHtml(eventTitle(event))}</span></div>
+        <span class="event-time">${platform.name} · ${timeLabel(event.start, event.end)} · ${escapeHtml(event.owner)}</span>
+        <div class="handle right" data-handle="right"></div>
+      `;
+      node.addEventListener("pointerdown", startEventPointer);
+      node.addEventListener("click", (eventObj) => {
+        eventObj.stopPropagation();
+        markSelectedEvent(event.id, eventObj.metaKey || eventObj.ctrlKey);
+      });
+      node.addEventListener("dblclick", (eventObj) => {
+        eventObj.stopPropagation();
+        openPanel(event.id);
+      });
+      node.addEventListener("contextmenu", (eventObj) => {
+        eventObj.preventDefault();
+        eventObj.stopPropagation();
+        showContextMenu(eventObj, event.id);
+      });
+      node.addEventListener("auxclick", (eventObj) => {
+        if (eventObj.button !== 2) return;
+        eventObj.preventDefault();
+        eventObj.stopPropagation();
+        showContextMenu(eventObj, event.id);
+      });
+      return node;
+    }
+
+    function escapeHtml(value) {
+      return value.replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      })[char]);
+    }
+
+    function rowMinutesFromPointer(row, pointerX) {
+      const rect = row.getBoundingClientRect();
+      const ratio = clamp((pointerX - rect.left) / rect.width, 0, 1);
+      return snapMinutes(ratio * 1440);
+    }
+
+    function eventEdgeFromPointer(eventNode, target, clientX) {
+      const explicitHandle = target.closest?.(".handle")?.dataset.handle;
+      if (explicitHandle) return explicitHandle;
+      const rect = eventNode.getBoundingClientRect();
+      const zone = Math.min(16, Math.max(10, rect.width * 0.22));
+      if (clientX - rect.left <= zone) return "left";
+      if (rect.right - clientX <= zone) return "right";
+      return null;
+    }
+
+    function eventWidthStyle(start, end) {
+      const duration = Math.max(5, end - start);
+      const remaining = 1440 - start;
+      const visibleDuration = Math.min(duration, remaining);
+      const gap = duration <= 5 ? 2 : duration < 15 ? 4 : 12;
+      const minWidth = duration <= 5 ? 0 : duration < 15 ? 14 : 30;
+      const width = `calc(var(--hour-w) * ${visibleDuration / 60} - ${gap}px)`;
+      return {
+        minWidth: `${minWidth}px`,
+        width: minWidth > 0 ? `max(${minWidth}px, ${width})` : width
+      };
+    }
+
+    function setEventNodeTime(node, start, end) {
+      const widthStyle = eventWidthStyle(start, end);
+      node.style.left = `calc(var(--hour-w) * ${start / 60} + 8px)`;
+      node.style.minWidth = widthStyle.minWidth;
+      node.style.width = widthStyle.width;
+    }
+
+    function updateEventNodeText(node, eventItem) {
+      const platform = platformMeta(eventItem.platform);
+      const timeNode = node.querySelector(".event-time");
+      if (timeNode) {
+        timeNode.textContent = `${platform.name} · ${timeLabel(eventItem.start, eventItem.end)} · ${eventItem.owner}`;
+      }
+    }
+
+    function rowFromPoint(pointerY) {
+      const rows = Array.from(document.querySelectorAll(".timeline-row"));
+      return rows.find((row) => {
+        const rect = row.getBoundingClientRect();
+        return pointerY >= rect.top && pointerY <= rect.bottom;
+      }) || null;
+    }
+
+    function isPointerOutsideScheduler(clientX, clientY) {
+      const scheduler = document.querySelector(".scheduler");
+      if (!scheduler) return false;
+      const rect = scheduler.getBoundingClientRect();
+      return clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom;
+    }
+
+    function hideContextMenu() {
+      el.contextMenu.classList.remove("open");
+      el.contextMenu.dataset.eventId = "";
+      contextTarget = null;
+    }
+
+    function showContextMenu(eventObj, id) {
+      selectedId = id;
+      selectedIds = new Set([id]);
+      render();
+      el.contextMenu.dataset.eventId = id;
+      contextTarget = { eventId: id, day: null, start: null };
+      el.contextEdit.hidden = false;
+      el.contextCopy.hidden = false;
+      el.contextDelete.hidden = false;
+      el.contextPaste.hidden = !copiedEvent;
+      el.contextMenu.style.left = `${Math.min(eventObj.clientX, window.innerWidth - 150)}px`;
+      el.contextMenu.style.top = `${Math.min(eventObj.clientY, window.innerHeight - 84)}px`;
+      el.contextMenu.classList.add("open");
+    }
+
+    function showRowContextMenu(eventObj, row) {
+      if (!copiedEvent) return;
+      eventObj.preventDefault();
+      eventObj.stopPropagation();
+      hideContextMenu();
+      const start = Math.min(rowMinutesFromPointer(row, eventObj.clientX), 1439);
+      contextTarget = { eventId: null, day: parseDayValue(row.dataset.day), start };
+      el.contextMenu.dataset.eventId = "";
+      el.contextEdit.hidden = true;
+      el.contextCopy.hidden = true;
+      el.contextDelete.hidden = true;
+      el.contextPaste.hidden = false;
+      el.contextMenu.style.left = `${Math.min(eventObj.clientX, window.innerWidth - 150)}px`;
+      el.contextMenu.style.top = `${Math.min(eventObj.clientY, window.innerHeight - 84)}px`;
+      el.contextMenu.classList.add("open");
+    }
+
+    function setSelectedDays(dayList) {
+      const selected = new Set(dayList.map(String));
+      el.jobDays.querySelectorAll("input[type='checkbox']").forEach((input) => {
+        input.checked = selected.has(input.value);
+      });
+    }
+
+    function selectedDays() {
+      const values = Array.from(el.jobDays.querySelectorAll("input[type='checkbox']:checked"))
+        .map((input) => parseDayValue(input.value));
+      return values.length ? values : [1];
+    }
+
+    function setRepeatDays(dayList) {
+      const selected = new Set(dayList.map(String));
+      el.repeatDays.querySelectorAll("input[type='checkbox']").forEach((input) => {
+        input.checked = selected.has(input.value);
+      });
+    }
+
+    function selectedRepeatDays() {
+      return Array.from(el.repeatDays.querySelectorAll("input[type='checkbox']:checked"))
+        .map((input) => parseDayValue(input.value));
+    }
+
+    function createSchedule(day, start, end) {
+      const platform = el.platformFilter.value === "all" ? platforms[0].id : el.platformFilter.value;
+      const eventItem = {
+        id: crypto.randomUUID(),
+        platform,
+        day,
+        start,
+        end,
+        priority: Date.now(),
+        title: "New pipeline job",
+        name: "New pipeline job",
+        owner: "Owner",
+        memo: ""
+      };
+      events.push(eventItem);
+      selectedId = eventItem.id;
+      selectedIds = new Set([eventItem.id]);
+      render();
+      openPanel(eventItem.id);
+    }
+
+    function copyEvent(id) {
+      const eventItem = events.find((item) => item.id === id);
+      if (!eventItem) return;
+      copiedEvent = { ...eventItem, id: null };
+      selectedId = eventItem.id;
+      selectedIds = new Set([eventItem.id]);
+      hideContextMenu();
+      render();
+    }
+
+    function pasteEvent(target = {}) {
+      if (!copiedEvent) return;
+      const duration = copiedEvent.end - copiedEvent.start;
+      const day = target.day ?? events.find((item) => item.id === selectedId)?.day ?? copiedEvent.day;
+      let start = target.start ?? (events.find((item) => item.id === selectedId)?.end ?? copiedEvent.start + duration);
+      start = Math.max(0, Math.min(1440 - duration, snapMinutes(start)));
+      const eventItem = {
+        ...copiedEvent,
+        id: crypto.randomUUID(),
+        day,
+        start,
+        end: start + duration,
+        priority: Date.now()
+      };
+      events.push(eventItem);
+      selectedId = eventItem.id;
+      selectedIds = new Set([eventItem.id]);
+      hideContextMenu();
+      render();
+    }
+
+    function attachRowDrag(row) {
+      row.addEventListener("pointerdown", (eventObj) => {
+        if (eventObj.target.closest(".event")) return;
+        const start = rowMinutesFromPointer(row, eventObj.clientX);
+        const draft = document.createElement("div");
+        draft.className = "draft";
+        row.append(draft);
+        row.setPointerCapture(eventObj.pointerId);
+        row.classList.add("dragging");
+        dragState = {
+          kind: "create",
+          row,
+          draft,
+          day: parseDayValue(row.dataset.day),
+          anchor: start,
+          current: start + 30,
+          startX: eventObj.clientX,
+          startY: eventObj.clientY,
+          dragged: false
+        };
+        updateDraft();
+      });
+
+      row.addEventListener("dblclick", (eventObj) => {
+        if (eventObj.target.closest(".event")) return;
+        eventObj.stopPropagation();
+        const start = Math.min(rowMinutesFromPointer(row, eventObj.clientX), 1380);
+        createSchedule(parseDayValue(row.dataset.day), start, start + 60);
+      });
+
+      row.addEventListener("contextmenu", (eventObj) => {
+        if (eventObj.target.closest(".event")) return;
+        showRowContextMenu(eventObj, row);
+      });
+    }
+
+    function updateDraft() {
+      if (!dragState || dragState.kind !== "create") return;
+      const start = Math.min(dragState.anchor, dragState.current);
+      const end = Math.max(dragState.anchor, dragState.current);
+      const widthStyle = eventWidthStyle(start, end);
+      dragState.draft.style.left = `calc(var(--hour-w) * ${start / 60} + 8px)`;
+      dragState.draft.style.minWidth = widthStyle.minWidth;
+      dragState.draft.style.width = widthStyle.width;
+    }
+
+    function handleDragMove(clientX, clientY) {
+      if (!dragState) return;
+
+      if (dragState.kind === "create") {
+        if (Math.abs(clientX - dragState.startX) > 4 || Math.abs(clientY - dragState.startY) > 4) {
+          dragState.dragged = true;
+        }
+        dragState.current = rowMinutesFromPointer(dragState.row, clientX);
+        if (dragState.current === dragState.anchor) dragState.current += 30;
+        updateDraft();
+        return;
+      }
+
+      if (dragState.kind === "resize") {
+        const eventItem = events.find((item) => item.id === dragState.id);
+        if (!eventItem) return;
+        const next = rowMinutesFromPointer(dragState.row, clientX);
+        if (dragState.edge === "left") {
+          eventItem.start = clamp(next, 0, dragState.end - 5);
+        } else {
+          eventItem.end = clamp(next, dragState.start + 5, 1440);
+        }
+        dragState.moved = true;
+        if (dragState.node) {
+          setEventNodeTime(dragState.node, eventItem.start, eventItem.end);
+          updateEventNodeText(dragState.node, eventItem);
+        }
+        return;
+      }
+
+      if (dragState.kind === "move") {
+        const eventItem = events.find((item) => item.id === dragState.id);
+        if (!eventItem) return;
+        const targetRow = rowFromPoint(clientY);
+        dragState.outside = isPointerOutsideScheduler(clientX, clientY);
+        if (!targetRow) {
+          dragState.moved = true;
+          return;
+        }
+        const pointerMinutes = rowMinutesFromPointer(targetRow, clientX);
+        const duration = dragState.end - dragState.start;
+        let nextStart = snapMinutes(pointerMinutes - dragState.pointerOffset);
+        nextStart = Math.max(0, Math.min(1440 - duration, nextStart));
+        eventItem.start = nextStart;
+        eventItem.end = nextStart + duration;
+        eventItem.day = parseDayValue(targetRow.dataset.day);
+        dragState.moved = true;
+        dragState.row = targetRow;
+        if (dragState.node) {
+          if (dragState.node.parentElement !== targetRow) targetRow.append(dragState.node);
+          setEventNodeTime(dragState.node, eventItem.start, eventItem.end);
+          updateEventNodeText(dragState.node, eventItem);
+        }
+      }
+    }
+
+    function finishDrag(eventObj) {
+      if (!dragState) return;
+
+      if (dragState.kind === "create") {
+        const start = Math.min(dragState.anchor, dragState.current);
+        const end = Math.max(dragState.anchor, dragState.current);
+        dragState.row.classList.remove("dragging");
+        dragState.draft.remove();
+        if (dragState.dragged && end - start >= 5) {
+          createSchedule(dragState.day, start, end);
+        }
+      }
+
+      if (dragState.kind === "move") {
+        const moved = dragState.moved;
+        const id = dragState.id;
+        const outside = dragState.outside || (eventObj && isPointerOutsideScheduler(eventObj.clientX, eventObj.clientY));
+        dragState = null;
+        if (outside) {
+          render();
+          moveToTrash([id]);
+          return;
+        }
+        if (!moved) markSelectedEvent(id);
+        else render();
+        return;
+      }
+
+      if (dragState.kind === "resize") {
+        dragState = null;
+        render();
+        return;
+      }
+
+      dragState = null;
+    }
+
+    window.addEventListener("pointermove", (eventObj) => handleDragMove(eventObj.clientX, eventObj.clientY));
+    window.addEventListener("pointerup", finishDrag);
+
+    function startEventPointer(eventObj) {
+      if (dragState) return;
+      const eventNode = eventObj.currentTarget;
+      const id = eventNode.dataset.id;
+      if (eventObj.button === 2) {
+        eventObj.preventDefault();
+        eventObj.stopPropagation();
+        showContextMenu(eventObj, id);
+        return;
+      }
+      if (eventObj.button && eventObj.button !== 0) return;
+      if (eventObj.metaKey || eventObj.ctrlKey) return;
+      eventObj.preventDefault();
+      selectedId = id;
+      selectedIds = new Set([id]);
+      hideContextMenu();
+      const eventItem = events.find((item) => item.id === id);
+      const row = eventNode.closest(".timeline-row");
+      if (eventItem && row) {
+        eventObj.stopPropagation();
+        const edge = eventEdgeFromPointer(eventNode, eventObj.target, eventObj.clientX);
+        if (edge) {
+          dragState = {
+            kind: "resize",
+            id,
+            edge,
+            row,
+            node: eventNode,
+            start: eventItem.start,
+            end: eventItem.end,
+            moved: false
+          };
+          eventNode.classList.add("selected", `resize-${edge}`);
+          if (eventObj.pointerId !== undefined) eventNode.setPointerCapture(eventObj.pointerId);
+          return;
+        }
+        dragState = {
+          kind: "move",
+          id,
+          row,
+          node: eventNode,
+          start: eventItem.start,
+          end: eventItem.end,
+          pointerOffset: clamp(rowMinutesFromPointer(row, eventObj.clientX) - eventItem.start, 0, eventItem.end - eventItem.start),
+          moved: false
+        };
+        eventNode.classList.add("selected");
+        eventNode.classList.add("moving");
+        if (eventObj.pointerId !== undefined) eventNode.setPointerCapture(eventObj.pointerId);
+        return;
+      }
+      render();
+    }
+
+    function selectEvent(id) {
+      selectedId = id;
+      selectedIds = new Set([id]);
+      render();
+    }
+
+    function markSelectedEvent(id, additive = false) {
+      if (additive) {
+        if (selectedIds.has(id)) selectedIds.delete(id);
+        else selectedIds.add(id);
+        selectedId = selectedIds.has(id) ? id : Array.from(selectedIds).at(-1) || null;
+      } else {
+        selectedIds = new Set([id]);
+        selectedId = id;
+      }
+      document.querySelectorAll(".event").forEach((node) => {
+        node.classList.toggle("selected", selectedIds.has(node.dataset.id));
+      });
+    }
+
+    function openPanel(id) {
+      const eventItem = events.find((item) => item.id === id);
+      if (!eventItem) return;
+      editingId = id;
+      selectedId = id;
+      selectedIds = new Set([id]);
+      el.panelTitle.textContent = "스케줄 편집";
+      el.jobName.value = eventItem.name;
+      el.jobPlatform.value = eventItem.platform;
+      setSelectedDays([eventItem.day]);
+      el.startTime.value = String(eventItem.start);
+      el.endTime.value = String(eventItem.end);
+      renderOwnerControls(eventItem.owner);
+      el.owner.value = eventItem.owner;
+      el.memo.value = eventItem.memo || "";
+      el.deleteBtn.hidden = false;
+      panelOpenedAt = Date.now();
+      el.sidePanel.classList.add("open");
+      render();
+    }
+
+    function openNewPanel() {
+      const platform = el.platformFilter.value === "all" ? platforms[0].id : el.platformFilter.value;
+      const eventItem = {
+        id: crypto.randomUUID(),
+        platform,
+        day: 1,
+        start: 540,
+        end: 600,
+        priority: Date.now(),
+        name: "New pipeline job",
+        owner: "Owner"
+      };
+      events.push(eventItem);
+      selectedId = eventItem.id;
+      selectedIds = new Set([eventItem.id]);
+      openPanel(eventItem.id);
+    }
+
+    function closePanel() {
+      editingId = null;
+      el.sidePanel.classList.remove("open");
+    }
+
+    function savePanel() {
+      const eventItem = events.find((item) => item.id === editingId);
+      if (!eventItem) return;
+      const start = Number(el.startTime.value);
+      const rawEnd = Number(el.endTime.value);
+      const daysToSave = selectedDays();
+      const name = el.jobName.value.trim() || "Untitled pipeline";
+      const platform = el.jobPlatform.value;
+      const end = Math.max(start + 5, rawEnd);
+      const owner = el.owner.value || "Owner";
+      eventItem.name = name;
+      delete eventItem.title;
+      eventItem.platform = platform;
+      eventItem.day = daysToSave[0];
+      eventItem.start = start;
+      eventItem.end = end;
+      eventItem.owner = owner;
+      eventItem.memo = el.memo.value.trim();
+      daysToSave.slice(1).forEach((day) => {
+        events.push({
+          id: crypto.randomUUID(),
+          platform,
+          day,
+          start,
+          end,
+          priority: Date.now() + day,
+          name,
+          owner,
+          memo: el.memo.value.trim()
+        });
+      });
+      selectedId = eventItem.id;
+      selectedIds = new Set([eventItem.id]);
+      closePanel();
+      render();
+    }
+
+    function deleteSelected() {
+      const ids = editingId ? [editingId] : Array.from(selectedIds);
+      moveToTrash(ids);
+    }
+
+    function moveToTrash(ids) {
+      const uniqueIds = [...new Set(ids.filter(Boolean))];
+      if (!uniqueIds.length) return;
+      const message = uniqueIds.length === 1
+        ? "선택한 스케줄을 삭제할까요? 7일간 휴지통에 보관됩니다."
+        : `선택한 스케줄 ${uniqueIds.length}개를 삭제할까요? 7일간 휴지통에 보관됩니다.`;
+      if (!window.confirm(message)) return;
+      const deletedAt = Date.now();
+      const idSet = new Set(uniqueIds);
+      events.forEach((eventItem) => {
+        if (idSet.has(eventItem.id)) trash.push({ ...eventItem, deletedAt });
+      });
+      events = events.filter((eventItem) => !idSet.has(eventItem.id));
+      selectedId = null;
+      selectedIds.clear();
+      closePanel();
+      hideContextMenu();
+      renderTrash();
+      render();
+      renderRepeatGroups();
+    }
+
+    function deleteEventById(id) {
+      moveToTrash([id]);
+    }
+
+    function pruneTrash() {
+      const maxAge = 7 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      trash = trash.filter((item) => now - item.deletedAt <= maxAge);
+    }
+
+    function renderTrash() {
+      pruneTrash();
+      el.trashBtn.textContent = `휴지통${trash.length ? ` (${trash.length})` : ""}`;
+      el.emptyTrashBtn.disabled = trash.length === 0;
+      if (!trash.length) {
+        el.trashList.innerHTML = `<div class="empty-state">삭제된 스케줄이 없습니다.</div>`;
+        saveState();
+        return;
+      }
+      el.trashList.innerHTML = trash.map((item) => {
+        const deletedDate = new Date(item.deletedAt);
+        const expiresAt = item.deletedAt + 7 * 24 * 60 * 60 * 1000;
+        const remainingDays = Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
+        const remainingLabel = remainingDays <= 1 ? "오늘 영구 삭제" : `영구 삭제까지 ${remainingDays}일 남음`;
+        return `
+          <div class="trash-item" data-id="${item.id}">
+            <strong>${escapeHtml(eventTitle(item))}</strong>
+            <span>${dayLabel(item.day)} · ${platformMeta(item.platform).name} · ${timeLabel(item.start, item.end)} · ${deletedDate.toLocaleDateString()}</span>
+            <span>${remainingLabel}</span>
+            <div class="trash-item-actions">
+              <button class="text-btn" data-restore="${item.id}">복구</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+      saveState();
+    }
+
+    function restoreFromTrash(id) {
+      const item = trash.find((trashItem) => trashItem.id === id);
+      if (!item) return;
+      const { deletedAt, ...eventItem } = item;
+      events.push(eventItem);
+      trash = trash.filter((trashItem) => trashItem.id !== id);
+      selectedId = id;
+      selectedIds = new Set([id]);
+      renderTrash();
+      renderRepeatGroups();
+      render();
+    }
+
+    function emptyTrash() {
+      pruneTrash();
+      if (!trash.length) return;
+      if (!window.confirm(`휴지통의 스케줄 ${trash.length}개를 영구 삭제할까요?`)) return;
+      trash = [];
+      renderTrash();
+      saveState();
+    }
+
+    function updatePlatform(id, updates) {
+      platforms = platforms.map((platform) => platform.id === id ? { ...platform, ...updates } : platform);
+      renderPlatformControls();
+      renderPlatformManager();
+      render();
+    }
+
+    function addPlatform() {
+      const name = el.newPlatformName.value.trim();
+      if (!name) return;
+      const platform = {
+        id: platformIdFromName(name),
+        name,
+        color: el.newPlatformColor.value || "#1b7f79"
+      };
+      platforms.push(platform);
+      el.newPlatformName.value = "";
+      el.newPlatformColor.value = "#1b7f79";
+      renderPlatformControls();
+      renderPlatformManager();
+      render();
+    }
+
+    function addOwner() {
+      const owner = el.newOwnerName.value.trim();
+      if (!owner || owners.includes(owner)) return;
+      owners.push(owner);
+      el.newOwnerName.value = "";
+      renderOwnerControls(owner);
+      saveState();
+    }
+
+    function openRepeatPanel() {
+      el.repeatName.value = "";
+      el.repeatPlatform.value = "";
+      el.repeatOwner.value = "";
+      el.repeatMemo.value = "";
+      setRepeatDays([]);
+      el.repeatStartTime.value = "";
+      el.repeatEndTime.value = "";
+      el.repeatInterval.value = "";
+      el.repeatDuration.value = "";
+      renderRepeatGroups();
+      closePanel();
+      el.repeatPanel.classList.add("open");
+    }
+
+    function closeRepeatPanel() {
+      el.repeatPanel.classList.remove("open");
+    }
+
+    function renderRepeatGroups() {
+      repeatGroups = repeatGroups.filter((group) => events.some((event) => event.repeatGroupId === group.id));
+      if (!repeatGroups.length) {
+        el.repeatGroupList.innerHTML = `<div class="empty-state">반복으로 만든 스케줄이 없습니다.</div>`;
+        saveState();
+        return;
+      }
+      el.repeatGroupList.innerHTML = repeatGroups.map((group) => {
+        const count = events.filter((event) => event.repeatGroupId === group.id).length;
+        return `
+          <div class="repeat-group-item">
+            <div>
+              <strong>${escapeHtml(group.name)}</strong>
+              <span>${escapeHtml(group.summary)} · ${count}개</span>
+            </div>
+            <button class="text-btn danger" type="button" data-delete-repeat-group="${group.id}">삭제</button>
+          </div>
+        `;
+      }).join("");
+      saveState();
+    }
+
+    function deleteRepeatGroup(groupId) {
+      const ids = events.filter((event) => event.repeatGroupId === groupId).map((event) => event.id);
+      if (!ids.length) {
+        renderRepeatGroups();
+        return;
+      }
+      moveToTrash(ids);
+      renderRepeatGroups();
+    }
+
+    function createRepeatSchedule() {
+      const name = el.repeatName.value.trim();
+      const platform = el.repeatPlatform.value;
+      const owner = el.repeatOwner.value;
+      const memo = el.repeatMemo.value.trim();
+      const daysToUse = selectedRepeatDays();
+      const startValue = el.repeatStartTime.value;
+      const endValue = el.repeatEndTime.value;
+      const intervalValue = el.repeatInterval.value;
+      const durationValue = el.repeatDuration.value;
+      const start = Number(startValue);
+      const end = Number(endValue);
+      const interval = Number(intervalValue);
+      const duration = Number(durationValue);
+
+      if (!name) {
+        window.alert("파이프라인명을 입력해 주세요.");
+        return;
+      }
+      if (!platform) {
+        window.alert("구분을 선택해 주세요.");
+        return;
+      }
+      if (!daysToUse.length) {
+        window.alert("반복 요일을 하나 이상 선택해 주세요.");
+        return;
+      }
+      if (startValue === "" || endValue === "") {
+        window.alert("시작 시간과 종료 시간을 선택해 주세요.");
+        return;
+      }
+      if (end <= start) {
+        window.alert("종료 시간은 시작 시간보다 뒤여야 합니다.");
+        return;
+      }
+      if (!Number.isFinite(interval) || interval <= 0) {
+        window.alert("몇 분마다 반복할지 입력해 주세요.");
+        return;
+      }
+      if (!Number.isFinite(duration) || duration <= 0) {
+        window.alert("몇 분씩 실행할지 입력해 주세요.");
+        return;
+      }
+      if (!owner) {
+        window.alert("소유자를 선택해 주세요.");
+        return;
+      }
+
+      const created = [];
+      const groupId = crypto.randomUUID();
+      daysToUse.forEach((day) => {
+        for (let cursor = start; cursor < end; cursor += interval) {
+          const eventEnd = Math.min(cursor + duration, end, 1440);
+          if (eventEnd <= cursor) continue;
+          created.push({
+            id: crypto.randomUUID(),
+            repeatGroupId: groupId,
+            platform,
+            day,
+            start: cursor,
+            end: eventEnd,
+            priority: Date.now() + created.length,
+            name,
+            owner,
+            memo
+          });
+        }
+      });
+
+      events.push(...created);
+      if (created.length) {
+        repeatGroups.push({
+          id: groupId,
+          name,
+          summary: `${daysToUse.map(dayLabel).join(", ")} · ${timeLabel(start, end)} · ${interval}분마다 ${duration}분씩`,
+          createdAt: Date.now()
+        });
+        selectedId = created[0].id;
+        selectedIds = new Set([created[0].id]);
+      }
+      closeRepeatPanel();
+      renderRepeatGroups();
+      render();
+    }
+
+    function reorderDayByOverflowList() {
+      const day = parseDayValue(el.overflowList.dataset.day);
+      const orderedIds = Array.from(el.overflowList.querySelectorAll("[data-overflow-event]"))
+        .map((node) => node.dataset.overflowEvent);
+      const base = (day === "daily" ? -1 : Number(day)) * 1000;
+      orderedIds.forEach((id, index) => {
+        const eventItem = events.find((event) => event.id === id);
+        if (eventItem) eventItem.priority = base + index;
+      });
+      render();
+      const hiddenIds = filteredEvents()
+        .filter((event) => String(event.day) === String(day))
+        .sort(sortByPriority)
+        .slice(4)
+        .map((event) => event.id);
+      openOverflowPanel(day, hiddenIds);
+    }
+
+    el.prevWeek.addEventListener("click", () => { weekOffset -= 1; render(); showWeekChangeFeedback(); });
+    el.nextWeek.addEventListener("click", () => { weekOffset += 1; render(); showWeekChangeFeedback(); });
+    el.todayBtn.addEventListener("click", () => { weekOffset = 0; render(); showWeekChangeFeedback(); });
+    el.trashBtn.addEventListener("click", () => {
+      renderTrash();
+      el.trashPanel.classList.add("open");
+    });
+    el.closeTrash.addEventListener("click", () => el.trashPanel.classList.remove("open"));
+    el.emptyTrashBtn.addEventListener("click", emptyTrash);
+    el.platformManageBtn.addEventListener("click", () => {
+      renderPlatformManager();
+      el.platformPanel.classList.add("open");
+    });
+    el.closePlatformPanel.addEventListener("click", () => el.platformPanel.classList.remove("open"));
+    el.addPlatformBtn.addEventListener("click", addPlatform);
+    el.newPlatformName.addEventListener("keydown", (eventObj) => {
+      if (eventObj.key === "Enter") addPlatform();
+    });
+    el.addOwnerBtn.addEventListener("click", addOwner);
+    el.newOwnerName.addEventListener("keydown", (eventObj) => {
+      if (eventObj.key === "Enter") addOwner();
+    });
+    el.repeatBtn.addEventListener("click", openRepeatPanel);
+    el.closeRepeatPanel.addEventListener("click", closeRepeatPanel);
+    el.cancelRepeatBtn.addEventListener("click", closeRepeatPanel);
+    el.createRepeatBtn.addEventListener("click", createRepeatSchedule);
+    el.repeatGroupList.addEventListener("click", (eventObj) => {
+      const groupId = eventObj.target.dataset.deleteRepeatGroup;
+      if (groupId) deleteRepeatGroup(groupId);
+    });
+    el.platformList.addEventListener("change", (eventObj) => {
+      const nameId = eventObj.target.dataset.platformName;
+      const colorId = eventObj.target.dataset.platformColor;
+      if (nameId) {
+        const name = eventObj.target.value.trim();
+        if (name) updatePlatform(nameId, { name });
+        else renderPlatformManager();
+      }
+      if (colorId) updatePlatform(colorId, { color: eventObj.target.value });
+    });
+    el.platformList.addEventListener("click", (eventObj) => {
+      const swatchId = eventObj.target.dataset.platformSwatch;
+      const color = eventObj.target.dataset.color;
+      if (swatchId && color) updatePlatform(swatchId, { color });
+    });
+    el.closeOverflowPanel.addEventListener("click", () => el.overflowPanel.classList.remove("open"));
+    el.overflowList.addEventListener("dragstart", (eventObj) => {
+      const item = eventObj.target.closest("[data-overflow-event]");
+      if (!item) return;
+      overflowDragId = item.dataset.overflowEvent;
+      overflowDidDrag = false;
+      item.classList.add("dragging");
+      eventObj.dataTransfer.effectAllowed = "move";
+      eventObj.dataTransfer.setData("text/plain", overflowDragId);
+    });
+    el.overflowList.addEventListener("dragover", (eventObj) => {
+      const dragging = el.overflowList.querySelector(".overflow-item.dragging");
+      const target = eventObj.target.closest("[data-overflow-event]");
+      if (!dragging || !target || dragging === target) return;
+      eventObj.preventDefault();
+      overflowDidDrag = true;
+      const rect = target.getBoundingClientRect();
+      const before = eventObj.clientY < rect.top + rect.height / 2;
+      target.parentNode.insertBefore(dragging, before ? target : target.nextSibling);
+    });
+    el.overflowList.addEventListener("drop", (eventObj) => {
+      if (!overflowDragId) return;
+      eventObj.preventDefault();
+      reorderDayByOverflowList();
+      overflowDragId = null;
+      overflowDidDrag = false;
+    });
+    el.overflowList.addEventListener("dragend", () => {
+      el.overflowList.querySelectorAll(".overflow-item.dragging").forEach((node) => node.classList.remove("dragging"));
+      overflowDragId = null;
+    });
+    el.overflowList.addEventListener("click", (eventObj) => {
+      if (overflowDidDrag) {
+        overflowDidDrag = false;
+        return;
+      }
+      const id = eventObj.target.closest("[data-overflow-event]")?.dataset.overflowEvent;
+      if (!id) return;
+      el.overflowPanel.classList.remove("open");
+      openPanel(id);
+    });
+    el.trashList.addEventListener("click", (eventObj) => {
+      const restoreId = eventObj.target.dataset.restore;
+      if (restoreId) restoreFromTrash(restoreId);
+    });
+    el.newBtn.addEventListener("click", openNewPanel);
+    el.sidePanel.addEventListener("click", (eventObj) => eventObj.stopPropagation());
+    el.repeatPanel.addEventListener("click", (eventObj) => eventObj.stopPropagation());
+    el.closePanel.addEventListener("click", closePanel);
+    el.saveBtn.addEventListener("click", savePanel);
+    el.deleteBtn.addEventListener("click", deleteSelected);
+    el.contextEdit.addEventListener("click", () => {
+      const id = el.contextMenu.dataset.eventId;
+      hideContextMenu();
+      if (id) openPanel(id);
+    });
+    el.contextCopy.addEventListener("click", () => {
+      const id = el.contextMenu.dataset.eventId || selectedId;
+      if (id) copyEvent(id);
+    });
+    el.contextPaste.addEventListener("click", () => {
+      pasteEvent(contextTarget || {});
+    });
+    el.contextDelete.addEventListener("click", () => {
+      const id = el.contextMenu.dataset.eventId;
+      if (id) deleteEventById(id);
+    });
+    el.platformFilter.addEventListener("change", render);
+    el.searchInput.addEventListener("input", render);
+    el.scheduler.addEventListener("scroll", updateScrollHints);
+    window.addEventListener("resize", updateScrollHints);
+    el.appTitleText.addEventListener("dblclick", startAppTitleEdit);
+    el.appTitleInput.addEventListener("blur", finishAppTitleEdit);
+    el.appTitleInput.addEventListener("keydown", (eventObj) => {
+      if (eventObj.key === "Enter") {
+        eventObj.preventDefault();
+        el.appTitleInput.blur();
+      } else if (eventObj.key === "Escape") {
+        eventObj.preventDefault();
+        updateAppTitle();
+        el.titleBlock.classList.remove("editing");
+      }
+    });
+    document.addEventListener("click", (eventObj) => {
+      if (!eventObj.target.closest("#contextMenu")) hideContextMenu();
+      if (
+        el.sidePanel.classList.contains("open") &&
+        Date.now() - panelOpenedAt > 180 &&
+        !eventObj.target.closest("#sidePanel") &&
+        !eventObj.target.closest(".event") &&
+        !eventObj.target.closest("#newBtn")
+      ) {
+        closePanel();
+      }
+      if (
+        el.repeatPanel.classList.contains("open") &&
+        !eventObj.target.closest("#repeatPanel") &&
+        !eventObj.target.closest("#repeatBtn")
+      ) {
+        closeRepeatPanel();
+      }
+    });
+    document.addEventListener("contextmenu", (eventObj) => {
+      if (!eventObj.target.closest(".event")) hideContextMenu();
+    });
+    document.addEventListener("keydown", (eventObj) => {
+      const isShortcut = eventObj.metaKey || eventObj.ctrlKey;
+      const activeTag = document.activeElement?.tagName;
+      const typing = activeTag === "INPUT" || activeTag === "SELECT" || activeTag === "TEXTAREA";
+      if (isShortcut && !typing && eventObj.key.toLowerCase() === "c" && selectedId) {
+        eventObj.preventDefault();
+        copyEvent(selectedId);
+        return;
+      }
+      if (isShortcut && !typing && eventObj.key.toLowerCase() === "v" && copiedEvent) {
+        eventObj.preventDefault();
+        pasteEvent();
+        return;
+      }
+      if (eventObj.key === "Escape") {
+        closePanel();
+        closeRepeatPanel();
+        el.trashPanel.classList.remove("open");
+        el.platformPanel.classList.remove("open");
+        el.overflowPanel.classList.remove("open");
+        hideContextMenu();
+      }
+      if (
+        (eventObj.key === "Delete" || eventObj.key === "Backspace") &&
+        selectedIds.size &&
+        !el.sidePanel.classList.contains("open") &&
+        !el.repeatPanel.classList.contains("open")
+      ) {
+        eventObj.preventDefault();
+        moveToTrash(Array.from(selectedIds));
+      }
+    });
+
+    async function initializeApp() {
+      await loadState();
+      populateControls();
+      updateAppTitle();
+      appReady = true;
+      renderTrash();
+      renderRepeatGroups();
+      render();
+      scrollToInitialTime();
+      window.setInterval(updateLiveStatus, 60000);
+    }
+
+    initializeApp();
+  </script>
+</body>
+</html>
